@@ -171,7 +171,7 @@ Video Frame
 
 **Adhiraj Singh**  
 B.Tech — Computer Science Engineering (AI/ML)  
-[GitHub](https://github.com/your-username) · [LinkedIn](https://linkedin.com/in/your-profile)
+[GitHub](https://github.com/Adhirajsingh2507) · [LinkedIn](https://www.linkedin.com/in/adhiraj-singh-39631b363/)
 
 ---
 

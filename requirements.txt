@@ -1,0 +1,9 @@
+# Real-Time Object Tracking System - Dependencies
+# Python 3.10+ required
+# torch and torchvision are installed automatically as ultralytics dependencies.
+# No GPU required — everything runs on CPU.
+
+ultralytics>=8.0.0
+deep-sort-realtime>=1.3
+opencv-python>=4.8.0
+numpy>=1.24.0

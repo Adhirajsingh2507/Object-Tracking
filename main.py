@@ -1,44 +1,127 @@
-import sys
-import cv2
+"""
+YOLOv8 + DeepSORT Real-Time Object Tracker — PySide6 GUI
+---------------------------------------------------------
+Threaded video capture, ONNX-ready inference, frame skipping,
+resolution control, and live FPS overlay.
 
+Usage:
+    python main.py
+"""
+
+import sys
+from queue import Queue, Empty
+
+import cv2
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QLabel,
-    QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QFileDialog
+    QApplication,
+    QMainWindow,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QHBoxLayout,
+    QWidget,
+    QFileDialog,
+    QComboBox,
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QImage, QPixmap
 
-from ultralytics import YOLO
-from deep_sort_realtime.deepsort_tracker import DeepSort
+from core import TrackerCore
 
 
+# ──────────────────────────────────────────────
+# Capture Thread — reads frames in background
+# ──────────────────────────────────────────────
+class CaptureThread(QThread):
+    """Reads frames from a cv2.VideoCapture in a background thread."""
+
+    frame_ready = Signal(object)  # emits numpy frame
+
+    def __init__(self, source, queue: Queue, parent=None):
+        super().__init__(parent)
+        self.source = source
+        self.queue = queue
+        self._running = True
+
+    def run(self):
+        cap = cv2.VideoCapture(self.source)
+        if not cap.isOpened():
+            print(f"[ERROR] Cannot open video source: {self.source}")
+            return
+
+        while self._running:
+            ret, frame = cap.read()
+            if not ret:
+                # End of video — stop (no infinite loop)
+                break
+            # Drop old frames if queue is full (keep latest)
+            if self.queue.full():
+                try:
+                    self.queue.get_nowait()
+                except Empty:
+                    pass
+            self.queue.put(frame)
+
+        cap.release()
+
+    def stop(self):
+        self._running = False
+        self.wait()
+
+
+# ──────────────────────────────────────────────
+# Main Window
+# ──────────────────────────────────────────────
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
         # -------- WINDOW --------
         self.setWindowTitle("YOLOv8 + DeepSORT Tracker")
-        self.setGeometry(100, 100, 900, 600)
-
+        self.setGeometry(100, 100, 960, 600)
         self.setStyleSheet("""
+            QMainWindow { background-color: #1e1e2e; }
+            QLabel { color: #cdd6f4; }
             QPushButton {
-                padding: 8px;
-                font-size: 14px;
+                padding: 8px 14px;
+                font-size: 13px;
+                background-color: #313244;
+                color: #cdd6f4;
+                border: 1px solid #45475a;
+                border-radius: 6px;
+            }
+            QPushButton:hover { background-color: #45475a; }
+            QPushButton:pressed { background-color: #585b70; }
+            QComboBox {
+                padding: 6px;
+                font-size: 13px;
+                background-color: #313244;
+                color: #cdd6f4;
+                border: 1px solid #45475a;
+                border-radius: 6px;
             }
         """)
 
         # -------- VIDEO DISPLAY --------
-        self.video_label = QLabel("Video Feed")
+        self.video_label = QLabel("No Video — Upload a file or use your camera")
         self.video_label.setAlignment(Qt.AlignCenter)
-        self.video_label.setStyleSheet("background-color: black; color: white;")
-        self.video_label.setFixedHeight(400)
+        self.video_label.setStyleSheet(
+            "background-color: #11111b; color: #6c7086; font-size: 16px;"
+        )
+        self.video_label.setMinimumHeight(400)
 
         # -------- BUTTONS --------
-        self.upload_btn = QPushButton("Upload Video")
-        self.camera_btn = QPushButton("Use Camera")
-        self.start_btn = QPushButton("Start Tracking")
-        self.stop_tracking_btn = QPushButton("Stop Tracking")
-        self.stop_btn = QPushButton("Stop Video")
+        self.upload_btn = QPushButton("📂 Upload Video")
+        self.camera_btn = QPushButton("📷 Camera")
+        self.start_btn = QPushButton("▶ Start Tracking")
+        self.stop_tracking_btn = QPushButton("⏸ Stop Tracking")
+        self.stop_btn = QPushButton("⏹ Stop Video")
+
+        # -------- RESOLUTION SELECTOR --------
+        self.res_combo = QComboBox()
+        self.res_combo.addItems(["320px (fastest)", "480px (balanced)", "640px (quality)"])
+        self.res_combo.setCurrentIndex(1)  # default: 480
+        self.res_combo.currentIndexChanged.connect(self._on_res_change)
 
         # -------- LAYOUT --------
         button_layout = QHBoxLayout()
@@ -47,6 +130,7 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(self.start_btn)
         button_layout.addWidget(self.stop_tracking_btn)
         button_layout.addWidget(self.stop_btn)
+        button_layout.addWidget(self.res_combo)
 
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.video_label)
@@ -56,123 +140,122 @@ class MainWindow(QMainWindow):
         container.setLayout(main_layout)
         self.setCentralWidget(container)
 
-        # -------- VIDEO --------
-        self.cap = None
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_frame)
-
-        # -------- MODEL --------
-        print("[INFO] Loading YOLO...")
-        self.model = YOLO("yolov8n.pt")
-        self.model.to("cpu")
-
-        print("[INFO] Initializing DeepSORT...")
-        self.tracker = DeepSort(max_age=20, n_init=3)
-
-        self.conf_threshold = 0.4
+        # -------- TRACKER CORE --------
+        self._init_tracker(process_width=480)
         self.tracking_enabled = False
+
+        # -------- CAPTURE THREAD --------
+        self.frame_queue: Queue = Queue(maxsize=2)
+        self.capture_thread = None
+
+        # -------- DISPLAY TIMER --------
+        self.timer = QTimer()
+        self.timer.timeout.connect(self._update_frame)
 
         # -------- BUTTON CONNECTIONS --------
-        self.upload_btn.clicked.connect(self.open_video)
-        self.camera_btn.clicked.connect(self.use_camera)
-        self.start_btn.clicked.connect(self.start_tracking)
-        self.stop_tracking_btn.clicked.connect(self.stop_tracking)
-        self.stop_btn.clicked.connect(self.stop_video)
+        self.upload_btn.clicked.connect(self._open_video)
+        self.camera_btn.clicked.connect(self._use_camera)
+        self.start_btn.clicked.connect(self._start_tracking)
+        self.stop_tracking_btn.clicked.connect(self._stop_tracking)
+        self.stop_btn.clicked.connect(self._stop_video)
 
-    # -------- BUTTON ACTIONS --------
-    def open_video(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Open Video")
+    # ------------------------------------------------------------------
+    # Tracker init
+    # ------------------------------------------------------------------
+    def _init_tracker(self, process_width: int = 480) -> None:
+        """(Re)initialise the TrackerCore. Tries ONNX first, falls back to .pt."""
+        from pathlib import Path
+
+        onnx_path = Path("yolov8n.onnx")
+        model = str(onnx_path) if onnx_path.exists() else "yolov8n.pt"
+        self.core = TrackerCore(
+            model_path=model,
+            conf_threshold=0.4,
+            process_width=process_width,
+            frame_skip=2,
+        )
+
+    # ------------------------------------------------------------------
+    # Button actions
+    # ------------------------------------------------------------------
+    def _open_video(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Open Video", "", "Video Files (*.mp4 *.avi *.mkv *.mov);;All Files (*)"
+        )
         if file_path:
-            self.cap = cv2.VideoCapture(file_path)
-            self.tracking_enabled = False  # reset tracking
-            self.timer.start(30)
+            self._start_source(file_path)
 
-    def use_camera(self):
-        self.cap = cv2.VideoCapture(0)
+    def _use_camera(self):
+        self._start_source(0)
+
+    def _start_source(self, source):
+        """Stop any existing capture, then start a new one."""
+        self._stop_video()
+        self.frame_queue = Queue(maxsize=2)
+        self.capture_thread = CaptureThread(source, self.frame_queue)
+        self.capture_thread.start()
         self.tracking_enabled = False
-        self.timer.start(30)
+        self.timer.start(15)  # ~66 Hz poll rate (actual display is frame-rate limited)
 
-    def start_tracking(self):
+    def _start_tracking(self):
         self.tracking_enabled = True
 
-    def stop_tracking(self):
+    def _stop_tracking(self):
         self.tracking_enabled = False
 
-    def stop_video(self):
+    def _stop_video(self):
         self.timer.stop()
-        if self.cap:
-            self.cap.release()
+        if self.capture_thread is not None:
+            self.capture_thread.stop()
+            self.capture_thread = None
+        # Drain queue
+        while not self.frame_queue.empty():
+            try:
+                self.frame_queue.get_nowait()
+            except Empty:
+                break
         self.video_label.setText("Video Stopped")
 
-    # -------- PROCESS FRAME --------
-    def process_frame(self, frame):
-        results = self.model(frame, verbose=False, conf=self.conf_threshold)[0]
+    def _on_res_change(self, index: int):
+        widths = [320, 480, 640]
+        self._init_tracker(process_width=widths[index])
 
-        detections = []
-        for box in results.boxes:
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-            conf = float(box.conf[0])
-            cls = int(box.cls[0])
-            detections.append(([x1, y1, x2 - x1, y2 - y1], conf, cls))
-
-        tracks = self.tracker.update_tracks(detections, frame=frame)
-
-        for track in tracks:
-            if not track.is_confirmed():
-                continue
-
-            x1, y1, x2, y2 = track.to_ltrb()
-            track_id = track.track_id
-
-            cv2.rectangle(
-                frame,
-                (int(x1), int(y1)),
-                (int(x2), int(y2)),
-                (0, 255, 0),
-                2,
-            )
-
-            cv2.putText(
-                frame,
-                f"ID: {track_id}",
-                (int(x1), int(y1) - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 255, 0),
-                2,
-            )
-
-        return frame
-
-    # -------- UPDATE FRAME --------
-    def update_frame(self):
-        if self.cap is None:
+    # ------------------------------------------------------------------
+    # Frame loop
+    # ------------------------------------------------------------------
+    def _update_frame(self):
+        try:
+            frame = self.frame_queue.get_nowait()
+        except Empty:
             return
 
-        ret, frame = self.cap.read()
+        if self.tracking_enabled:
+            frame = self.core.process(frame)
+            self.core.draw_fps(frame)
 
-        if ret:
-            if self.tracking_enabled:
-                frame = self.process_frame(frame)
+        # BGR → RGB for Qt
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = frame.shape
+        qt_image = QImage(frame.data, w, h, ch * w, QImage.Format_RGB888)
+        self.video_label.setPixmap(
+            QPixmap.fromImage(qt_image).scaled(
+                self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+        )
 
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    # ------------------------------------------------------------------
+    # Cleanup
+    # ------------------------------------------------------------------
+    def closeEvent(self, event):
+        self._stop_video()
+        event.accept()
 
-            h, w, ch = frame.shape
-            bytes_per_line = ch * w
 
-            qt_image = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
-            pixmap = QPixmap.fromImage(qt_image)
-
-            self.video_label.setPixmap(pixmap)
-        else:
-            # -------- INFINITE LOOP --------
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-
-# -------- RUN APP --------
+# ──────────────────────────────────────────────
+# Entry point
+# ──────────────────────────────────────────────
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-
     window = MainWindow()
     window.show()
-
     sys.exit(app.exec())

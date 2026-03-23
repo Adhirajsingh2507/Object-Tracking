@@ -1,0 +1,279 @@
+# [main.py](file:///home/adhiraj-singh/track_project/main.py) — Complete Architecture & Implementation Plan
+
+> **YOLOv8 + DeepSORT Real-Time Object Tracker with PySide6 GUI**
+
+---
+
+## 1. High-Level System Architecture
+
+```mermaid
+graph TD
+    subgraph Entry["🚀 Application Entry"]
+        A["__main__ block"] -->|creates| B["QApplication"]
+        B -->|instantiates| C["MainWindow"]
+        C -->|calls| D["window.show()"]
+        D -->|starts| E["sys.exit(app.exec())"]
+    end
+
+    subgraph Init["🏗️ MainWindow.__init__"]
+        C -->|builds| F["PySide6 UI Components"]
+        C -->|loads| G["YOLOv8n Model (CPU)"]
+        C -->|initialises| H["DeepSORT Tracker"]
+        C -->|creates| I["QTimer (30 ms interval)"]
+    end
+
+    subgraph UI["🖥️ GUI Layer (PySide6)"]
+        F --> F1["QLabel — Video Display"]
+        F --> F2["QPushButton — Upload Video"]
+        F --> F3["QPushButton — Use Camera"]
+        F --> F4["QPushButton — Start Tracking"]
+        F --> F5["QPushButton — Stop Tracking"]
+        F --> F6["QPushButton — Stop Video"]
+    end
+
+    subgraph Signals["🔗 Signal → Slot Connections"]
+        F2 -->|clicked| S1["open_video()"]
+        F3 -->|clicked| S2["use_camera()"]
+        F4 -->|clicked| S3["start_tracking()"]
+        F5 -->|clicked| S4["stop_tracking()"]
+        F6 -->|clicked| S5["stop_video()"]
+        I  -->|timeout| S6["update_frame()"]
+    end
+
+    subgraph Pipeline["⚙️ Frame Processing Pipeline"]
+        S6 -->|reads frame| VP1["cv2.VideoCapture.read()"]
+        VP1 -->|tracking ON?| VP2{"tracking_enabled?"}
+        VP2 -->|Yes| VP3["process_frame()"]
+        VP2 -->|No| VP4["Raw frame"]
+        VP3 --> VP5["YOLOv8 Inference"]
+        VP5 --> VP6["Extract Detections (xyxy → xywh)"]
+        VP6 --> VP7["DeepSORT update_tracks()"]
+        VP7 --> VP8["Draw Bounding Boxes + IDs"]
+        VP8 --> VP4
+        VP4 --> VP9["BGR → RGB Conversion"]
+        VP9 --> VP10["QImage → QPixmap"]
+        VP10 --> VP11["Display on QLabel"]
+    end
+
+    subgraph Loop["🔁 Video Loop Behaviour"]
+        VP1 -->|ret=False| LP1["Reset to frame 0 (infinite loop)"]
+        LP1 -->|next tick| VP1
+    end
+
+    style Entry fill:#1a1a2e,stroke:#e94560,color:#fff
+    style Init fill:#16213e,stroke:#0f3460,color:#fff
+    style UI fill:#0f3460,stroke:#533483,color:#fff
+    style Signals fill:#533483,stroke:#e94560,color:#fff
+    style Pipeline fill:#1a1a2e,stroke:#e94560,color:#fff
+    style Loop fill:#16213e,stroke:#0f3460,color:#fff
+```
+
+---
+
+## 2. Component Dependency Graph
+
+```mermaid
+graph LR
+    subgraph External["📦 External Libraries"]
+        PY["Python 3.10+"]
+        QT["PySide6 (Qt6)"]
+        CV["OpenCV (cv2)"]
+        UL["Ultralytics (YOLOv8)"]
+        DS["deep-sort-realtime"]
+        NP["NumPy"]
+        PT["PyTorch (auto-installed)"]
+    end
+
+    subgraph Internal["📄 main.py"]
+        MW["MainWindow (QMainWindow)"]
+    end
+
+    MW --> QT
+    MW --> CV
+    MW --> UL
+    MW --> DS
+    UL --> PT
+    UL --> NP
+    DS --> NP
+    CV --> NP
+
+    style External fill:#161b22,stroke:#30363d,color:#c9d1d9
+    style Internal fill:#0d1117,stroke:#58a6ff,color:#58a6ff
+```
+
+---
+
+## 3. Class Diagram
+
+```mermaid
+classDiagram
+    class MainWindow {
+        -QLabel video_label
+        -QPushButton upload_btn
+        -QPushButton camera_btn
+        -QPushButton start_btn
+        -QPushButton stop_tracking_btn
+        -QPushButton stop_btn
+        -VideoCapture cap
+        -QTimer timer
+        -YOLO model
+        -DeepSort tracker
+        -float conf_threshold
+        -bool tracking_enabled
+        +__init__()
+        +open_video()
+        +use_camera()
+        +start_tracking()
+        +stop_tracking()
+        +stop_video()
+        +process_frame(frame) frame
+        +update_frame()
+    }
+
+    MainWindow --|> QMainWindow : inherits
+    MainWindow --> YOLO : uses
+    MainWindow --> DeepSort : uses
+    MainWindow --> QTimer : owns
+    MainWindow --> VideoCapture : owns
+```
+
+---
+
+## 4. Data-Flow Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant GUI as PySide6 GUI
+    participant Timer as QTimer (30ms)
+    participant Cap as cv2.VideoCapture
+    participant YOLO as YOLOv8n
+    participant DS as DeepSORT
+    participant CV as OpenCV Draw
+
+    User->>GUI: Click "Upload Video" / "Use Camera"
+    GUI->>Cap: VideoCapture(source)
+    GUI->>Timer: timer.start(30)
+
+    User->>GUI: Click "Start Tracking"
+    GUI->>GUI: tracking_enabled = True
+
+    loop Every 30ms
+        Timer->>GUI: timeout signal → update_frame()
+        GUI->>Cap: cap.read()
+        Cap-->>GUI: (ret, frame)
+        alt ret == True AND tracking ON
+            GUI->>YOLO: model(frame, conf=0.4)
+            YOLO-->>GUI: results.boxes [xyxy, conf, cls]
+            GUI->>GUI: Convert xyxy → xywh detections list
+            GUI->>DS: update_tracks(detections, frame)
+            DS-->>GUI: confirmed tracks [ltrb, track_id]
+            GUI->>CV: rectangle() + putText() per track
+            CV-->>GUI: annotated frame
+        end
+        GUI->>GUI: cvtColor BGR→RGB
+        GUI->>GUI: QImage → QPixmap
+        GUI->>GUI: video_label.setPixmap()
+    end
+
+    User->>GUI: Click "Stop Tracking"
+    GUI->>GUI: tracking_enabled = False
+
+    User->>GUI: Click "Stop Video"
+    GUI->>Timer: timer.stop()
+    GUI->>Cap: cap.release()
+```
+
+---
+
+## 5. State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle : App launched
+
+    Idle --> VideoPlaying : open_video() / use_camera()
+    VideoPlaying --> TrackingActive : start_tracking()
+    TrackingActive --> VideoPlaying : stop_tracking()
+    VideoPlaying --> Idle : stop_video()
+    TrackingActive --> Idle : stop_video()
+
+    state VideoPlaying {
+        [*] --> ReadFrame
+        ReadFrame --> DisplayRaw : ret=True
+        DisplayRaw --> ReadFrame : timer tick
+        ReadFrame --> ResetToStart : ret=False
+        ResetToStart --> ReadFrame : timer tick
+    }
+
+    state TrackingActive {
+        [*] --> ReadFrame2 : read frame
+        ReadFrame2 --> YOLODetect : ret=True
+        YOLODetect --> DeepSORTTrack
+        DeepSORTTrack --> DrawAnnotations
+        DrawAnnotations --> DisplayFrame
+        DisplayFrame --> ReadFrame2 : timer tick
+        ReadFrame2 --> ResetLoop : ret=False
+        ResetLoop --> ReadFrame2 : timer tick
+    }
+```
+
+---
+
+## 6. File-Level Implementation Breakdown
+
+### [main.py](file:///home/adhiraj-singh/track_project/main.py) — Method-by-Method Reference
+
+| Method | Lines | Purpose |
+|---|---|---|
+| [__init__](file:///home/adhiraj-singh/track_project/main.py#16-81) | 16–80 | Window setup, UI layout, model/tracker init, signal wiring |
+| [open_video](file:///home/adhiraj-singh/track_project/main.py#83-89) | 83–88 | Opens file dialog → sets `VideoCapture` → starts timer |
+| [use_camera](file:///home/adhiraj-singh/track_project/main.py#90-94) | 90–93 | Opens webcam (index 0) → starts timer |
+| [start_tracking](file:///home/adhiraj-singh/track_project/main.py#95-97) | 95–96 | Sets `tracking_enabled = True` |
+| [stop_tracking](file:///home/adhiraj-singh/track_project/main.py#98-100) | 98–99 | Sets `tracking_enabled = False` |
+| [stop_video](file:///home/adhiraj-singh/track_project/main.py#101-106) | 101–105 | Stops timer, releases capture, resets label |
+| [process_frame](file:///home/adhiraj-singh/track_project/main.py#108-146) | 108–145 | YOLO inference → detection conversion → DeepSORT update → drawing |
+| [update_frame](file:///home/adhiraj-singh/track_project/main.py#148-170) | 148–169 | Timer callback: read → optional track → BGR→RGB → display |
+| `__main__` block | 172–178 | Creates `QApplication`, shows window, enters event loop |
+
+---
+
+## 7. Key Design Decisions
+
+| Decision | Rationale |
+|---|---|
+| **CPU-only mode** (`model.to("cpu")`) | Ensures zero-GPU portability on any machine |
+| **QTimer at 30ms** | ~33 FPS cap; balances smoothness vs CPU load |
+| **Infinite video loop** (`CAP_PROP_POS_FRAMES → 0`) | Video replays indefinitely until manually stopped |
+| **conf_threshold = 0.4** | Filters out low-confidence ghost detections |
+| **DeepSORT (max_age=20, n_init=3)** | Keeps track alive 20 frames without match; needs 3 hits to confirm |
+| **xyxy → xywh conversion** | DeepSORT expects `[x, y, width, height]` format |
+
+---
+
+## 8. Relationship to Other Project Files
+
+```mermaid
+graph TB
+    subgraph Project["track_project/"]
+        M["main.py<br/>(PySide6 GUI Tracker)"]
+        T["track.py<br/>(CLI Tracker)"]
+        A["app.py<br/>(Streamlit AI Chatbot)"]
+        W["yolov8n.pt<br/>(Model Weights)"]
+        R["requirements.txt"]
+    end
+
+    M -->|loads| W
+    T -->|loads| W
+    M -.->|shares detection logic with| T
+    A -.->|unrelated — AI chatbot| A
+
+    style M fill:#238636,stroke:#fff,color:#fff
+    style T fill:#1f6feb,stroke:#fff,color:#fff
+    style A fill:#8b949e,stroke:#fff,color:#fff
+    style W fill:#f0883e,stroke:#fff,color:#fff
+```
+
+> [main.py](file:///home/adhiraj-singh/track_project/main.py) and [track.py](file:///home/adhiraj-singh/track_project/track.py) share identical YOLO + DeepSORT detection/tracking logic.  
+> [main.py](file:///home/adhiraj-singh/track_project/main.py) wraps it in a **PySide6 GUI**; [track.py](file:///home/adhiraj-singh/track_project/track.py) is a headless **CLI** version.  
+> [app.py](file:///home/adhiraj-singh/track_project/app.py) is an unrelated Streamlit chatbot that uses Gemini AI.

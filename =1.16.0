@@ -1,0 +1,30 @@
+Collecting onnxruntime
+  Downloading onnxruntime-1.14.1-cp37-cp37m-manylinux_2_27_x86_64.whl.metadata (3.9 kB)
+Collecting coloredlogs (from onnxruntime)
+  Downloading coloredlogs-15.0.1-py2.py3-none-any.whl.metadata (12 kB)
+Collecting flatbuffers (from onnxruntime)
+  Downloading flatbuffers-25.12.19-py2.py3-none-any.whl.metadata (1.0 kB)
+Requirement already satisfied: numpy>=1.21.6 in /home/adhiraj-singh/.pyenv/versions/3.7.17/lib/python3.7/site-packages (from onnxruntime) (1.21.6)
+Requirement already satisfied: packaging in /home/adhiraj-singh/.pyenv/versions/3.7.17/lib/python3.7/site-packages (from onnxruntime) (24.0)
+Collecting protobuf (from onnxruntime)
+  Downloading protobuf-4.24.4-cp37-abi3-manylinux2014_x86_64.whl.metadata (540 bytes)
+Collecting sympy (from onnxruntime)
+  Downloading sympy-1.10.1-py3-none-any.whl.metadata (12 kB)
+Collecting humanfriendly>=9.1 (from coloredlogs->onnxruntime)
+  Downloading humanfriendly-10.0-py2.py3-none-any.whl.metadata (9.2 kB)
+Collecting mpmath>=0.19 (from sympy->onnxruntime)
+  Using cached mpmath-1.3.0-py3-none-any.whl.metadata (8.6 kB)
+Downloading onnxruntime-1.14.1-cp37-cp37m-manylinux_2_27_x86_64.whl (5.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.0/5.0 MB 3.2 MB/s eta 0:00:00
+Downloading coloredlogs-15.0.1-py2.py3-none-any.whl (46 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 46.0/46.0 kB 6.3 MB/s eta 0:00:00
+Downloading flatbuffers-25.12.19-py2.py3-none-any.whl (26 kB)
+Downloading protobuf-4.24.4-cp37-abi3-manylinux2014_x86_64.whl (311 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 311.6/311.6 kB 15.2 MB/s eta 0:00:00
+Downloading sympy-1.10.1-py3-none-any.whl (6.4 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.4/6.4 MB 3.2 MB/s eta 0:00:00
+Downloading humanfriendly-10.0-py2.py3-none-any.whl (86 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 86.8/86.8 kB 4.1 MB/s eta 0:00:00
+Using cached mpmath-1.3.0-py3-none-any.whl (536 kB)
+Installing collected packages: mpmath, flatbuffers, sympy, protobuf, humanfriendly, coloredlogs, onnxruntime
+Successfully installed coloredlogs-15.0.1 flatbuffers-25.12.19 humanfriendly-10.0 mpmath-1.3.0 onnxruntime-1.14.1 protobuf-4.24.4 sympy-1.10.1

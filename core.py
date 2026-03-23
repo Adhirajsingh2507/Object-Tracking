@@ -176,8 +176,10 @@ class TrackerCore:
             # Update tracker
             self._last_tracks = self.tracker.update_tracks(detections, frame=frame)
         else:
-            # Skipped frame — re-use last tracks (DeepSORT predicts via Kalman)
-            self._last_tracks = self.tracker.update_tracks([], frame=frame)
+            # Skipped frame — do NOT call update_tracks with empty detections,
+            # as that would kill unconfirmed tracks before they reach n_init.
+            # Just reuse the last known tracks.
+            pass
 
         # Draw confirmed tracks
         self._draw_tracks(frame, self._last_tracks)

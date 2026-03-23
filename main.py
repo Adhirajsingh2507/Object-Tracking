@@ -119,8 +119,10 @@ class MainWindow(QMainWindow):
 
         # -------- RESOLUTION SELECTOR --------
         self.res_combo = QComboBox()
+        self.res_combo.blockSignals(True)  # prevent signal during init
         self.res_combo.addItems(["320px (fastest)", "480px (balanced)", "640px (quality)"])
         self.res_combo.setCurrentIndex(1)  # default: 480
+        self.res_combo.blockSignals(False)
         self.res_combo.currentIndexChanged.connect(self._on_res_change)
 
         # -------- LAYOUT --------

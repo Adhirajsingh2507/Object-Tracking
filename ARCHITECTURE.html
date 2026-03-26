@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Object Tracking System — Complete Architecture</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --heading: #f0f6fc;
+            --accent: #58a6ff;
+            --green: #3fb950;
+            --orange: #d29922;
+            --code-bg: #1c2129;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 40px 24px;
+        }
+        h1 {
+            color: var(--heading);
+            font-size: 2em;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+        }
+        h2 {
+            color: var(--heading);
+            font-size: 1.5em;
+            margin-top: 48px;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        h3 {
+            color: var(--heading);
+            font-size: 1.2em;
+            margin-top: 24px;
+            margin-bottom: 12px;
+        }
+        p { margin-bottom: 16px; }
+        blockquote {
+            border-left: 4px solid var(--accent);
+            padding: 8px 16px;
+            margin-bottom: 16px;
+            color: #8b949e;
+            background: var(--surface);
+            border-radius: 0 6px 6px 0;
+        }
+        blockquote strong { color: var(--text); }
+        hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 32px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 16px;
+            font-size: 0.9em;
+        }
+        th {
+            background: var(--surface);
+            color: var(--heading);
+            text-align: left;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            font-weight: 600;
+        }
+        td {
+            padding: 8px 14px;
+            border: 1px solid var(--border);
+        }
+        tr:nth-child(even) { background: rgba(22, 27, 34, 0.5); }
+        code {
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            background: var(--code-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.88em;
+            color: #79c0ff;
+        }
+        strong { color: var(--heading); }
+        .mermaid {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 16px 0;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Object Tracking System — Complete Architecture</h1>
+
+<blockquote>
+    Two tracker variants: <strong>main.py</strong> (PyTorch + DeepSORT) and <strong>final.py</strong> (ONNX + IoU, 64 FPS)
+</blockquote>
+
+<hr>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>1. Project Overview</h2>
+
+<div class="mermaid">
+graph TB
+    subgraph Project["track_project/"]
+        direction LR
+        subgraph Standard["🔵 Standard Tracker"]
+            CORE["core.py<br/>TrackerCore"]
+            MAIN["main.py<br/>PySide6 GUI"]
+            TRACK["track.py<br/>CLI"]
+        end
+        subgraph Fast["🟢 Max-FPS Tracker"]
+            FINAL["final.py<br/>PySide6 GUI<br/>Self-contained"]
+        end
+        subgraph Shared["📦 Shared"]
+            EXPORT["export_onnx.py"]
+            PT["yolov8n.pt (6.5 MB)"]
+            ONNX["yolov8n.onnx (12.7 MB)"]
+        end
+    end
+
+    MAIN -->|imports| CORE
+    TRACK -->|imports| CORE
+    CORE -->|loads| PT
+    CORE -.->|optional| ONNX
+    FINAL -->|loads| ONNX
+    EXPORT -->|generates| ONNX
+
+    style Standard fill:#1f6feb,stroke:#fff,color:#fff
+    style Fast fill:#238636,stroke:#fff,color:#fff
+    style Shared fill:#f0883e,stroke:#fff,color:#fff
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>2. Performance Comparison</h2>
+
+<table>
+    <tr><th></th><th>main.py</th><th>final.py</th></tr>
+    <tr><td><strong>FPS</strong></td><td>~4.7</td><td><strong>64.1</strong></td></tr>
+    <tr><td>Inference</td><td>Ultralytics PyTorch (640px, 210ms)</td><td>ONNX Runtime (320px, <strong>36ms</strong>)</td></tr>
+    <tr><td>Tracker</td><td>DeepSORT (CNN + Kalman, ~30ms)</td><td>IoU Tracker (geometry, <strong>0.01ms</strong>)</td></tr>
+    <tr><td>Frame skip</td><td>2</td><td>3</td></tr>
+    <tr><td>Per-frame total</td><td>~240ms</td><td><strong>15.6ms</strong></td></tr>
+    <tr><td>Speedup</td><td>1×</td><td><strong>13.6×</strong></td></tr>
+</table>
+
+<hr>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>3. <code>final.py</code> — System Architecture</h2>
+
+<div class="mermaid">
+graph TD
+    subgraph GUI["🖥️ PySide6 GUI"]
+        BTN1["📂 Upload Video"]
+        BTN2["📷 Camera"]
+        BTN3["▶ Start Tracking"]
+        BTN4["⏸ Stop Tracking"]
+        BTN5["⏹ Stop Video"]
+        QUAL["Quality Dropdown<br/>⚡skip 4 · ⚖️skip 3 · 🎯skip 2 · 🔬skip 1"]
+        DISPLAY["QLabel Video Display"]
+    end
+
+    subgraph Threads["🧵 Threading"]
+        CT["CaptureThread (QThread)<br/>Background frame reading"]
+        Q["Queue(maxsize=2)<br/>Drop-old policy"]
+        TIMER["QTimer (10ms poll)"]
+    end
+
+    subgraph Pipeline["⚙️ Processing Pipeline"]
+        SKIP{"frame_count<br/>% skip == 0?"}
+        DET["ONNXDetector<br/>320×320, 36ms"]
+        NMS["NMS<br/>IoU ≤ 0.45"]
+        TRK["IoUTracker<br/>Greedy IoU matching<br/>0.01ms"]
+        DRAW["Draw Boxes + IDs + FPS"]
+        CONV["BGR→RGB → QImage → QPixmap"]
+    end
+
+    BTN1 & BTN2 -->|start| CT
+    CT --> Q
+    TIMER -->|poll| Q
+    Q --> SKIP
+    SKIP -->|Yes| DET --> NMS
+    SKIP -->|No| REUSE["Reuse last_boxes"]
+    NMS --> TRK
+    REUSE --> TRK
+    TRK --> DRAW --> CONV --> DISPLAY
+    BTN3 -->|enable| SKIP
+    BTN4 -->|disable| SKIP
+    QUAL -->|set frame_skip| SKIP
+
+    style GUI fill:#0f0f1a,stroke:#3a3a5c,color:#e0e0ff
+    style Threads fill:#1a1a2e,stroke:#0f3460,color:#fff
+    style Pipeline fill:#0d1117,stroke:#238636,color:#fff
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>4. Detection Pipeline Detail</h2>
+
+<div class="mermaid">
+flowchart LR
+    F["Raw Frame<br/>(e.g. 1920×1080)"] --> R["cv2.resize<br/>→ 320×320"]
+    R --> P["BGR→RGB<br/>float32 / 255<br/>HWC→CHW"]
+    P --> I["ort.session.run()<br/>ONNX inference<br/>~36ms"]
+    I --> D["Decode [1,84,6300]<br/>transpose → [6300,84]"]
+    D --> CF["Confidence filter<br/>≥ 0.5"]
+    CF --> SC["Scale coords<br/>→ original resolution"]
+    SC --> NMS["NMSBoxes<br/>IoU ≤ 0.45"]
+    NMS --> OUT["[x1,y1,x2,y2]<br/>clean boxes"]
+
+    style I fill:#238636,stroke:#fff,color:#fff
+    style NMS fill:#1f6feb,stroke:#fff,color:#fff
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>5. IoU Tracker Algorithm</h2>
+
+<div class="mermaid">
+flowchart TD
+    IN["New detections<br/>[x1,y1,x2,y2] list"] --> EMPTY{"Empty?"}
+    EMPTY -->|Yes| AGE["Age all tracks<br/>delete if age > max_age"]
+    EMPTY -->|No| IOU["Compute IoU matrix<br/>tracks × detections"]
+    IOU --> GREEDY["Greedy matching<br/>highest IoU first"]
+    GREEDY --> MATCH{"IoU ≥ 0.3?"}
+    MATCH -->|Yes| UPDATE["Update track bbox<br/>reset age, hits++"]
+    MATCH -->|No| DONE["Stop matching"]
+    UPDATE --> GREEDY
+    DONE --> UNMATCHED_T["Unmatched tracks → age++<br/>delete if > max_age"]
+    UNMATCHED_T --> UNMATCHED_D["Unmatched detections<br/>→ new track (ID++)"]
+    UNMATCHED_D --> RES["Return (track_id, bbox) list"]
+
+    style IOU fill:#238636,stroke:#fff,color:#fff
+    style GREEDY fill:#1f6feb,stroke:#fff,color:#fff
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>6. Class Diagram</h2>
+
+<div class="mermaid">
+classDiagram
+    class ONNXDetector {
+        +float conf
+        +float nms
+        +InferenceSession session
+        +str input_name
+        +int input_h
+        +int input_w
+        +__init__(model_path, conf, nms)
+        +detect(frame) list
+    }
+
+    class IoUTracker {
+        +float iou_threshold
+        +int max_age
+        +OrderedDict tracks
+        -int _next_id
+        +update(boxes) list
+        +_compute_iou_matrix(a, b)$ ndarray
+    }
+
+    class CaptureThread {
+        +source
+        +Queue queue
+        -bool _running
+        +run()
+        +stop()
+    }
+
+    class MainWindow {
+        -QLabel video_label
+        -QPushButton upload_btn
+        -QPushButton camera_btn
+        -QPushButton start_btn
+        -QPushButton stop_tracking_btn
+        -QPushButton stop_btn
+        -QComboBox quality_combo
+        -ONNXDetector detector
+        -IoUTracker tracker
+        -Queue frame_queue
+        -CaptureThread capture_thread
+        -QTimer timer
+        -bool tracking_enabled
+        -int frame_skip
+        -int _frame_count
+        -list _last_boxes
+        +_open_video()
+        +_use_camera()
+        +_start_source(source)
+        +_start_tracking()
+        +_stop_tracking()
+        +_stop_video()
+        +_on_quality_change(index)
+        +_update_frame()
+        +closeEvent(event)
+    }
+
+    MainWindow --|> QMainWindow : inherits
+    CaptureThread --|> QThread : inherits
+    MainWindow --> ONNXDetector : owns
+    MainWindow --> IoUTracker : owns
+    MainWindow --> CaptureThread : owns
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>7. Sequence Diagram</h2>
+
+<div class="mermaid">
+sequenceDiagram
+    participant User
+    participant GUI as MainWindow
+    participant CT as CaptureThread
+    participant Q as frame_queue
+    participant DET as ONNXDetector
+    participant NMS as NMSBoxes
+    participant TRK as IoUTracker
+
+    User->>GUI: Click Camera / Upload
+    GUI->>CT: start(source)
+
+    User->>GUI: Click Start Tracking
+
+    loop QTimer every 10ms
+        CT->>Q: push frame
+        GUI->>Q: get_nowait()
+        Q-->>GUI: frame
+
+        alt frame_count % skip == 0
+            GUI->>DET: detect(frame)
+            DET->>DET: resize 320×320, preprocess
+            DET->>DET: ort.session.run() [36ms]
+            DET->>NMS: NMSBoxes(boxes, 0.5, 0.45)
+            NMS-->>DET: clean boxes
+            DET-->>GUI: last_boxes
+        end
+
+        GUI->>TRK: update(last_boxes) [0.01ms]
+        TRK-->>GUI: active tracks
+        GUI->>GUI: draw boxes + IDs + FPS
+        GUI->>GUI: BGR→RGB → QPixmap → display
+    end
+
+    User->>GUI: Quality → "⚡ Speed"
+    GUI->>GUI: frame_skip = 4
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>8. State Machine</h2>
+
+<div class="mermaid">
+stateDiagram-v2
+    [*] --> Idle : App launched, ONNX loaded
+
+    Idle --> Playing : Upload / Camera
+    Playing --> Tracking : Start Tracking
+    Tracking --> Playing : Stop Tracking
+    Playing --> Idle : Stop Video
+    Tracking --> Idle : Stop Video
+
+    state Tracking {
+        [*] --> Poll
+        Poll --> CheckSkip : frame from queue
+        CheckSkip --> RunONNX : skip match
+        CheckSkip --> ReuseBoxes : skip miss
+        RunONNX --> IoUUpdate
+        ReuseBoxes --> IoUUpdate
+        IoUUpdate --> DrawDisplay
+        DrawDisplay --> Poll : next tick
+    }
+
+    Idle --> QualityChanged : Quality dropdown
+    QualityChanged --> Idle : frame_skip updated
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>9. Dependency Graph</h2>
+
+<div class="mermaid">
+graph LR
+    subgraph fp["final.py (self-contained)"]
+        MW["MainWindow"]
+        OD["ONNXDetector"]
+        IT["IoUTracker"]
+        CT["CaptureThread"]
+    end
+
+    subgraph deps["Runtime Dependencies (3 only)"]
+        ORT["onnxruntime"]
+        CV["opencv-python"]
+        NP["numpy"]
+        QT["PySide6"]
+    end
+
+    OD --> ORT
+    OD --> CV
+    OD --> NP
+    IT --> NP
+    CT --> CV
+    MW --> QT
+    MW --> CV
+
+    style deps fill:#161b22,stroke:#30363d,color:#c9d1d9
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>10. Method Reference — <code>final.py</code></h2>
+
+<h3>ONNXDetector (lines 136–192)</h3>
+<table>
+    <tr><th>Method</th><th>Time</th><th>Purpose</th></tr>
+    <tr><td><code>__init__</code></td><td>—</td><td>Load ONNX model, read input shape</td></tr>
+    <tr><td><code>detect(frame)</code></td><td><strong>36ms</strong></td><td>Resize → preprocess → infer → decode → NMS → return [x1,y1,x2,y2]</td></tr>
+</table>
+
+<h3>IoUTracker (lines 45–130)</h3>
+<table>
+    <tr><th>Method</th><th>Time</th><th>Purpose</th></tr>
+    <tr><td><code>update(boxes)</code></td><td><strong>0.01ms</strong></td><td>Greedy IoU matching → age/delete/create tracks</td></tr>
+    <tr><td><code>_compute_iou_matrix</code></td><td>&lt;0.01ms</td><td>Vectorised IoU between two box lists</td></tr>
+</table>
+
+<h3>CaptureThread (lines 198–226)</h3>
+<table>
+    <tr><th>Method</th><th>Purpose</th></tr>
+    <tr><td><code>run()</code></td><td>Background loop: read frames, push to queue (drop-old)</td></tr>
+    <tr><td><code>stop()</code></td><td>Signal stop, wait for thread join</td></tr>
+</table>
+
+<h3>MainWindow (lines 232–452)</h3>
+<table>
+    <tr><th>Method</th><th>Lines</th><th>Purpose</th></tr>
+    <tr><td><code>__init__</code></td><td>233–350</td><td>Build dark UI, init detector + tracker, wire signals</td></tr>
+    <tr><td><code>_open_video</code></td><td>355–361</td><td>File dialog → start capture</td></tr>
+    <tr><td><code>_use_camera</code></td><td>363–364</td><td>Open webcam 0</td></tr>
+    <tr><td><code>_start_source</code></td><td>366–375</td><td>Stop old → new CaptureThread + reset tracker</td></tr>
+    <tr><td><code>_start_tracking</code></td><td>377–378</td><td>Enable detection + tracking</td></tr>
+    <tr><td><code>_stop_tracking</code></td><td>380–381</td><td>Disable tracking (video keeps playing)</td></tr>
+    <tr><td><code>_stop_video</code></td><td>383–393</td><td>Stop thread, timer, drain queue</td></tr>
+    <tr><td><code>_on_quality_change</code></td><td>395–398</td><td>Map dropdown → frame_skip (4/3/2/1)</td></tr>
+    <tr><td><code>_update_frame</code></td><td>403–445</td><td>Poll queue → detect (if skip) → track → draw → display</td></tr>
+    <tr><td><code>closeEvent</code></td><td>450–452</td><td>Clean shutdown</td></tr>
+</table>
+
+<hr>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>11. Key Parameters</h2>
+
+<table>
+    <tr><th>Parameter</th><th>Value</th><th>Effect</th></tr>
+    <tr><td>ONNX input</td><td><strong>320×320</strong></td><td>4× less pixels than 640 → ~6× faster</td></tr>
+    <tr><td><code>conf_threshold</code></td><td><strong>0.5</strong></td><td>Filters weak/duplicate detections</td></tr>
+    <tr><td><code>nms_threshold</code></td><td><strong>0.45</strong></td><td>Merges overlapping boxes</td></tr>
+    <tr><td><code>frame_skip</code></td><td><strong>3</strong> (default)</td><td>YOLO runs every 3rd frame</td></tr>
+    <tr><td><code>iou_threshold</code></td><td><strong>0.3</strong></td><td>Min overlap to match track↔detection</td></tr>
+    <tr><td><code>max_age</code></td><td><strong>15</strong></td><td>Frames before unmatched track deleted</td></tr>
+    <tr><td>Queue maxsize</td><td><strong>2</strong></td><td>Drops old frames to stay real-time</td></tr>
+    <tr><td>Timer interval</td><td><strong>10ms</strong></td><td>~100Hz poll rate</td></tr>
+</table>
+
+<script>
+    mermaid.initialize({
+        startOnLoad: true,
+        theme: 'dark',
+        themeVariables: {
+            darkMode: true,
+            background: '#161b22',
+            primaryColor: '#238636',
+            primaryTextColor: '#c9d1d9',
+            primaryBorderColor: '#30363d',
+            lineColor: '#58a6ff',
+            secondaryColor: '#1f6feb',
+            tertiaryColor: '#161b22',
+            fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+            fontSize: '14px'
+        }
+    });
+</script>
+
+</body>
+</html>

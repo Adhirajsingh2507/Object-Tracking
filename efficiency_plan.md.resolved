@@ -1,0 +1,188 @@
+# Efficiency Overhaul — [main.py](file:///home/adhiraj-singh/track_project/main.py) Object Tracker
+
+> **Goal:** Maximize FPS on a minimal CPU-only laptop while keeping YOLOv8 + DeepSORT tracking functional.
+
+---
+
+## Current Bottlenecks
+
+| Bottleneck | Impact | Root Cause |
+|---|---|---|
+| YOLO runs on **every frame** | ~70% of total time | No frame-skip logic |
+| Inference on **full resolution** | Wasted cycles on 1080p+ | No downscaling |
+| **Synchronous** capture + inference | I/O blocks processing | Single-threaded loop |
+| PyTorch [.pt](file:///home/adhiraj-singh/track_project/yolov8n.pt) model overhead | Slow CPU inference | No ONNX/quantization |
+| Duplicate logic in [main.py](file:///home/adhiraj-singh/track_project/main.py) + [track.py](file:///home/adhiraj-singh/track_project/track.py) | Maintenance burden | No shared module |
+| BGR→RGB conversion on every frame | Minor but avoidable | Always performed |
+
+---
+
+## New Architecture
+
+```mermaid
+graph TD
+    subgraph Thread1["📹 Capture Thread"]
+        C1["cv2.VideoCapture.read()"] --> C2["Resize to process_width"]
+        C2 --> C3["Push to frame_queue"]
+    end
+
+    subgraph MainThread["🧠 Main Thread (Qt Event Loop)"]
+        Q1["QTimer tick (adaptive)"] --> Q2["Pop from frame_queue"]
+        Q2 --> Q3{"tracking_enabled?"}
+        Q3 -->|Yes| Q4["Skip frame? (frame_skip counter)"]
+        Q4 -->|Process| Q5["ONNX / YOLO Inference"]
+        Q4 -->|Skip| Q6["Reuse last annotations"]
+        Q5 --> Q7["DeepSORT update_tracks()"]
+        Q7 --> Q8["Draw + FPS overlay"]
+        Q3 -->|No| Q8
+        Q6 --> Q8
+        Q8 --> Q9["Display on QLabel"]
+    end
+
+    C3 -.->|thread-safe queue| Q2
+
+    style Thread1 fill:#1a1a2e,stroke:#e94560,color:#fff
+    style MainThread fill:#16213e,stroke:#0f3460,color:#fff
+```
+
+---
+
+## Proposed Changes
+
+### 1. Core Tracking Module (shared logic)
+
+#### [NEW] [core.py](file:///home/adhiraj-singh/track_project/core.py)
+
+Extract all YOLO + DeepSORT logic into a reusable module:
+
+- `TrackerCore` class: loads model, runs inference, updates DeepSORT, draws
+- Supports both [.pt](file:///home/adhiraj-singh/track_project/yolov8n.pt) (PyTorch) and `.onnx` (ONNX Runtime) inference
+- Single source of truth — both [main.py](file:///home/adhiraj-singh/track_project/main.py) and [track.py](file:///home/adhiraj-singh/track_project/track.py) import from here
+- Configurable `process_width` for resolution downscaling (default: 640px)
+- Built-in frame-skip counter
+
+---
+
+### 2. ONNX Model Export
+
+#### [NEW] [export_onnx.py](file:///home/adhiraj-singh/track_project/export_onnx.py)
+
+One-time script to convert [yolov8n.pt](file:///home/adhiraj-singh/track_project/yolov8n.pt) → `yolov8n.onnx`:
+
+```python
+from ultralytics import YOLO
+model = YOLO("yolov8n.pt")
+model.export(format="onnx", imgsz=640, simplify=True)
+```
+
+> **Expected speedup:** 1.5–3× on CPU vs raw PyTorch. ONNX Runtime uses graph optimizations, operator fusion, and hardware-specific kernels.
+
+---
+
+### 3. GUI Application (efficiency upgrades)
+
+#### [MODIFY] [main.py](file:///home/adhiraj-singh/track_project/main.py)
+
+| Change | Detail |
+|---|---|
+| **Threaded capture** | `CaptureThread(QThread)` reads frames in background, pushes to `queue.Queue(maxsize=2)` |
+| **Import `TrackerCore`** | Replace inline YOLO/DeepSORT logic with `core.TrackerCore` calls |
+| **Adaptive timer** | Timer interval matches actual processing speed instead of fixed 30ms |
+| **FPS overlay** | Real-time FPS counter drawn on frame via `cv2.putText` |
+| **Resolution control** | Slider or config for `process_width` (320 / 480 / 640) |
+| **Remove infinite loop** | Video stops at end instead of replaying silently |
+
+---
+
+### 4. CLI Tracker (uses shared core)
+
+#### [MODIFY] [track.py](file:///home/adhiraj-singh/track_project/track.py)
+
+- Import `TrackerCore` from `core.py`
+- Remove duplicated detection/tracking code
+- Add `--onnx` flag to use ONNX model path
+- Add `--process-width` flag for resolution control
+- Add `--frame-skip` flag
+
+---
+
+### 5. Dependencies
+
+#### [MODIFY] [requirements.txt](file:///home/adhiraj-singh/track_project/requirements.txt)
+
+```diff
+ ultralytics>=8.0.0
+ deep-sort-realtime>=1.3
+ opencv-python>=4.8.0
+ numpy>=1.24.0
++onnxruntime>=1.16.0
++PySide6>=6.5.0
+```
+
+---
+
+### 6. Cleanup
+
+#### [DELETE] [app.py](file:///home/adhiraj-singh/track_project/app.py)
+
+> Unrelated Streamlit AI chatbot — not part of the tracking system. Removing to keep the project focused.
+
+> [!WARNING]
+> [app.py](file:///home/adhiraj-singh/track_project/app.py) will be deleted. Let me know if you want to keep it.
+
+---
+
+## Expected Impact
+
+| Improvement | Est. FPS Gain | Effort |
+|---|---|---|
+| ONNX inference | **+50–200%** | Low (one export script) |
+| Frame skipping (process every 2nd) | **+80–100%** | Low |
+| Resolution downscale (1080→640) | **+30–60%** | Low |
+| Threaded capture | **+10–20%** | Medium |
+| Shared `core.py` module | 0% (code quality) | Medium |
+| **Combined** | **~3–5× faster** | — |
+
+---
+
+## Final Architecture
+
+```mermaid
+graph TB
+    subgraph Project["track_project/ (after overhaul)"]
+        CORE["core.py<br/>TrackerCore class"]
+        MAIN["main.py<br/>PySide6 GUI + CaptureThread"]
+        TRACK["track.py<br/>CLI tracker"]
+        EXPORT["export_onnx.py<br/>PT → ONNX converter"]
+        ONNX["yolov8n.onnx<br/>(generated)"]
+        PT["yolov8n.pt<br/>(original)"]
+        REQ["requirements.txt"]
+    end
+
+    MAIN -->|imports| CORE
+    TRACK -->|imports| CORE
+    CORE -->|loads| ONNX
+    CORE -->|fallback| PT
+    EXPORT -->|generates| ONNX
+
+    style CORE fill:#238636,stroke:#fff,color:#fff
+    style MAIN fill:#1f6feb,stroke:#fff,color:#fff
+    style TRACK fill:#1f6feb,stroke:#fff,color:#fff
+    style EXPORT fill:#f0883e,stroke:#fff,color:#fff
+    style ONNX fill:#f0883e,stroke:#fff,color:#fff
+    style PT fill:#8b949e,stroke:#fff,color:#fff
+```
+
+---
+
+## Verification Plan
+
+### Automated
+- Run `python export_onnx.py` → confirm `yolov8n.onnx` is generated
+- Run `python track.py --source 0 --onnx yolov8n.onnx` → verify CLI tracking works
+- Run `python main.py` → verify GUI tracking with FPS counter visible
+
+### Manual
+- Compare FPS before/after on the same video file
+- Confirm tracking IDs remain stable across frames
+- Test all GUI buttons (upload, camera, start/stop tracking, stop video)

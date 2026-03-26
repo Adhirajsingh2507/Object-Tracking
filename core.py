@@ -39,15 +39,17 @@ class TrackerCore:
     def __init__(
         self,
         model_path: str = "yolov8n.pt",
-        conf_threshold: float = 0.4,
+        conf_threshold: float = 0.5,
         process_width: int = 640,
         frame_skip: int = 2,
-        max_age: int = 20,
-        n_init: int = 3,
+        max_age: int = 30,
+        n_init: int = 1,
+        nms_threshold: float = 0.45,
     ):
         self.conf_threshold = conf_threshold
         self.process_width = process_width
         self.frame_skip = max(1, frame_skip)
+        self.nms_threshold = nms_threshold
         self._frame_count = 0
         self._last_tracks = []
 
@@ -66,6 +68,8 @@ class TrackerCore:
             self._load_yolo(model_path)
 
         # --- DeepSORT ---
+        # n_init=1: confirm track on first match (critical for frame_skip > 1)
+        # max_age=30: keep lost tracks alive longer for re-association
         self.tracker = DeepSort(max_age=max_age, n_init=n_init)
 
     # ------------------------------------------------------------------
@@ -94,12 +98,28 @@ class TrackerCore:
     def _infer_yolo(self, frame: np.ndarray) -> list:
         """Run YOLOv8 .pt inference, return list of (xywh, conf, cls)."""
         results = self.model(frame, verbose=False, conf=self.conf_threshold)[0]
-        detections = []
+
+        boxes = []
+        scores = []
+        class_ids = []
+
         for box in results.boxes:
             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
             conf = float(box.conf[0])
             cls = int(box.cls[0])
-            detections.append(([x1, y1, x2 - x1, y2 - y1], conf, cls))
+            w, h = float(x2 - x1), float(y2 - y1)
+            boxes.append([float(x1), float(y1), w, h])
+            scores.append(conf)
+            class_ids.append(cls)
+
+        # Apply NMS to eliminate duplicate overlapping boxes
+        detections = []
+        if boxes:
+            indices = cv2.dnn.NMSBoxes(boxes, scores, self.conf_threshold, self.nms_threshold)
+            if len(indices) > 0:
+                for i in indices.flatten():
+                    detections.append((boxes[i], scores[i], class_ids[i]))
+
         return detections
 
     def _infer_onnx(self, frame: np.ndarray) -> list:
@@ -116,7 +136,10 @@ class TrackerCore:
         # YOLOv8 ONNX output shape: [1, 84, 8400] — transpose to [8400, 84]
         preds = outputs[0][0].T
 
-        detections = []
+        boxes = []
+        scores = []
+        class_ids = []
+
         for pred in preds:
             # pred: [cx, cy, w, h, cls0_conf, cls1_conf, ...]
             class_scores = pred[4:]
@@ -131,7 +154,18 @@ class TrackerCore:
             y1 = (cy - bh / 2) * h / input_h
             bw_scaled = bw * w / input_w
             bh_scaled = bh * h / input_h
-            detections.append(([x1, y1, bw_scaled, bh_scaled], conf, max_cls))
+            
+            boxes.append([float(x1), float(y1), float(bw_scaled), float(bh_scaled)])
+            scores.append(conf)
+            class_ids.append(max_cls)
+
+        # Apply Non-Maximum Suppression (NMS) to eliminate duplicate overlapping boxes
+        detections = []
+        if boxes:
+            indices = cv2.dnn.NMSBoxes(boxes, scores, self.conf_threshold, 0.45)
+            if len(indices) > 0:
+                for i in indices.flatten():
+                    detections.append((boxes[i], scores[i], class_ids[i]))
 
         return detections
 

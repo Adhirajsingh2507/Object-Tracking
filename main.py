@@ -172,7 +172,7 @@ class MainWindow(QMainWindow):
         model = str(onnx_path) if onnx_path.exists() else "yolov8n.pt"
         self.core = TrackerCore(
             model_path=model,
-            conf_threshold=0.4,
+            conf_threshold=0.5,
             process_width=process_width,
             frame_skip=2,
         )

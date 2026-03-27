@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — Object Tracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+    <a href="/" class="navbar-brand">⚡ <span>Object</span>Tracker</a>
+</nav>
+
+<div class="auth-container">
+    <div class="card auth-card">
+        <h2 id="auth-title">Welcome Back</h2>
+        <p class="subtitle" id="auth-subtitle">Sign in to your account</p>
+
+        <div class="error-msg" id="error-msg"></div>
+
+        <form id="auth-form" onsubmit="return false;">
+            <div class="form-group" id="email-group" style="display:none;">
+                <label for="email">Email</label>
+                <input type="email" id="email" placeholder="you@email.com">
+            </div>
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" placeholder="Enter username" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" placeholder="Enter password" required>
+            </div>
+            <button type="submit" class="btn btn-accent" id="auth-btn"
+                    style="width:100%; justify-content:center; margin-top:8px;">
+                Sign In
+            </button>
+        </form>
+
+        <div class="auth-toggle">
+            <span id="toggle-text">Don't have an account?</span>
+            <a href="#" id="toggle-link" onclick="toggleMode(); return false;">Register</a>
+        </div>
+    </div>
+</div>
+
+<script>
+    let isLogin = true;
+
+    function toggleMode() {
+        isLogin = !isLogin;
+        document.getElementById('auth-title').textContent = isLogin ? 'Welcome Back' : 'Create Account';
+        document.getElementById('auth-subtitle').textContent = isLogin ? 'Sign in to your account' : 'Get started for free';
+        document.getElementById('auth-btn').textContent = isLogin ? 'Sign In' : 'Create Account';
+        document.getElementById('toggle-text').textContent = isLogin ? "Don't have an account?" : 'Already have an account?';
+        document.getElementById('toggle-link').textContent = isLogin ? 'Register' : 'Sign In';
+        document.getElementById('email-group').style.display = isLogin ? 'none' : 'block';
+        hideError();
+    }
+
+    function showError(msg) {
+        const el = document.getElementById('error-msg');
+        el.textContent = msg;
+        el.style.display = 'block';
+    }
+
+    function hideError() {
+        document.getElementById('error-msg').style.display = 'none';
+    }
+
+    document.getElementById('auth-form').addEventListener('submit', async () => {
+        hideError();
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+
+        if (!username || !password) {
+            showError('Please fill in all fields');
+            return;
+        }
+
+        const endpoint = isLogin ? '/api/login' : '/api/register';
+        const body = isLogin
+            ? { username, password }
+            : { username, password, email: document.getElementById('email').value.trim() || `${username}@tracker.local` };
+
+        try {
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+
+            if (!res.ok) {
+                showError(data.detail || 'Authentication failed');
+                return;
+            }
+
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('username', data.username);
+            window.location.href = '/dashboard';
+        } catch (err) {
+            showError('Network error — is the server running?');
+        }
+    });
+
+    // Redirect if already logged in
+    if (localStorage.getItem('token')) {
+        window.location.href = '/dashboard';
+    }
+</script>
+
+</body>
+</html>

@@ -49,3 +49,6 @@ htmlcov/
 # === OS Files ===
 .DS_Store
 Thumbs.db
+tracker.db
+videos/
+__pycache__/

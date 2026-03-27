@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard — Object Tracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+    <a href="/" class="navbar-brand">⚡ <span>Object</span>Tracker</a>
+    <div class="navbar-links">
+        <span id="nav-user" style="color: var(--text-secondary); font-size: 0.9em;"></span>
+        <button class="btn" onclick="logout()" style="padding: 6px 14px; font-size: 12px;">Logout</button>
+    </div>
+</nav>
+
+<div class="dashboard">
+    <!-- Video Display -->
+    <div class="video-container" id="video-container">
+        <div class="video-placeholder" id="video-placeholder">
+            <p style="font-size: 2em; margin-bottom: 12px;">📹</p>
+            <p>No Video — Upload a file or use your camera</p>
+        </div>
+        <img id="video-stream" style="display:none;" alt="Video Stream">
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+        <div class="controls-left">
+            <button class="btn" id="btn-upload" onclick="showUpload()">📂 Upload Video</button>
+            <button class="btn" id="btn-camera" onclick="startWebcam()">📷 Camera</button>
+            <button class="btn btn-success" id="btn-start" onclick="startTracking()" disabled>▶ Start Tracking</button>
+            <button class="btn" id="btn-stop-track" onclick="stopTracking()" disabled>⏸ Stop Tracking</button>
+            <button class="btn btn-danger" id="btn-stop" onclick="stopVideo()" disabled>⏹ Stop Video</button>
+        </div>
+        <div class="controls-right">
+            <select id="quality-select" onchange="setQuality()">
+                <option value="4">⚡ Speed (skip 4)</option>
+                <option value="3" selected>⚖️ Balanced (skip 3)</option>
+                <option value="2">🎯 Quality (skip 2)</option>
+                <option value="1">🔬 Max (skip 1)</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Upload Area -->
+    <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
+        <p style="font-size: 1.5em;">📁</p>
+        <p>Click to select a video file (.mp4, .avi, .mkv, .mov)</p>
+        <input type="file" id="file-input" accept="video/*" onchange="uploadVideo(this)">
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <div class="status-item">
+            <div class="dot" id="status-dot"></div>
+            <span>State:</span>
+            <span class="value" id="status-state">Idle</span>
+        </div>
+        <div class="status-item">
+            <span>FPS:</span>
+            <span class="value" id="status-fps">0.0</span>
+        </div>
+        <div class="status-item">
+            <span>Skip:</span>
+            <span class="value" id="status-skip">3</span>
+        </div>
+    </div>
+</div>
+
+<script src="/static/script.js"></script>
+
+</body>
+</html>
